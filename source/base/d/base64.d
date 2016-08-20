@@ -4,13 +4,16 @@ import std.range.primitives : ElementType, isInputRange, isInfinite;
 import std.range.primitives : front, popFront, empty;
 import std.utf : front, popFront, empty;
 
-//Sadly not available in std.traits
+//Not available in std.traits
 enum isExplicitlyConvertible(From, To) = __traits(compiles, cast(To) From.init);
 
+///Lazily encodes a given Range to base64. The range must be an input range
+///whose element type is castable to a ubyte.
 struct Base64Encoder(Range)
     if(isInputRange!Range &&
        isExplicitlyConvertible!(ElementType!Range, ubyte))
 {
+    //TODO: Allow the final three chars to be decidable by the user
     static immutable encodingChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
 
     private Range range;
@@ -46,6 +49,9 @@ struct Base64Encoder(Range)
         pos = (pos + 1) & 3;
 
         oldValue = range.empty? 0 : cast(ubyte)range.front;
+
+        //Since encoding is 3:4 bytes, we need to pop the underlying range
+        //3 times while still producing 4 values
         if(!range.empty && pos != 0)
             range.popFront;
     }
@@ -57,6 +63,7 @@ struct Base64Encoder(Range)
     }
 }
 
+///Ditto
 auto base64Encode(Range)(Range r)
     if(isInputRange!Range &&
        isExplicitlyConvertible!(ElementType!Range, ubyte))
@@ -65,23 +72,6 @@ auto base64Encode(Range)(Range r)
 }
 
 ///
-pure @safe unittest
-{
-    import std.algorithm : equal;
-    import std.utf : byChar;
-
-    //The element type of our range must be castable to ubyte
-    //Because of autodecoding, the element type of a string is dchar
-//    static assert(!__traits(compiles, "test".base64Encode));
-
-    assert("test".base64Encode.equal("dGVzdA=="));
-
-    //To get around this, we can use std.utf.byChar
-    assert("Input string".byChar.base64Encode.equal("SW5wdXQgc3RyaW5n"));
-    assert("Input strin" .byChar.base64Encode.equal("SW5wdXQgc3RyaW4="));
-    assert("Input stri"  .byChar.base64Encode.equal("SW5wdXQgc3RyaQ=="));
-}
-
 pure @safe unittest
 {
     import std.algorithm : equal;
@@ -99,6 +89,18 @@ pure @safe unittest
     assert("".byChar.base64Encode.equal(""));
 }
 
+pure @safe unittest
+{
+    import std.algorithm : equal;
+    import std.utf : byChar;
+
+    assert("Input string".byChar.base64Encode.equal("SW5wdXQgc3RyaW5n"));
+    assert("Input strin" .byChar.base64Encode.equal("SW5wdXQgc3RyaW4="));
+    assert("Input stri"  .byChar.base64Encode.equal("SW5wdXQgc3RyaQ=="));
+}
+
+///Lazily decodes a given base64 encoded Range. The range must be an input range
+///whose element type is castable to a ubyte.
 struct Base64Decoder(Range)
     if(isInputRange!Range &&
        isExplicitlyConvertible!(ElementType!Range, char))
@@ -112,6 +114,7 @@ struct Base64Decoder(Range)
     this(Range range)
     {
         this.range = range;
+        //Decoding is 4:3, so we immediately skip the first item
         if(!range.empty)
         {
             oldValue = this.range.front;
@@ -139,6 +142,8 @@ struct Base64Decoder(Range)
         assert(!range.empty, "Cannot popFront() an empty range");
 
         pos = (pos+1) % 3;
+        //If we're in position zero, we need to skip to the next one
+        //as our decoding is 4:3
         if(!pos)
         {
             range.popFront;
@@ -158,10 +163,12 @@ struct Base64Decoder(Range)
 
     bool empty()
     {
+        //Final padding can be ignored
         return range.empty || range.front == '=';
     }
 }
 
+///Ditto
 auto base64Decode(Range)(Range r)
     if(isInputRange!Range &&
        isExplicitlyConvertible!(ElementType!Range, ubyte))
@@ -169,6 +176,7 @@ auto base64Decode(Range)(Range r)
     return Base64Decoder!Range(r);
 }
 
+///
 pure @safe unittest
 {
     import std.algorithm : equal;
@@ -181,7 +189,6 @@ pure @safe unittest
     assert("dGVzdCBzdHJp"    .byChar.base64Decode.equal("test stri"));
 }
 
-//Both in unison
 pure @safe unittest
 {
     import std.string : succ;
