@@ -64,37 +64,39 @@ auto base64Encode(Range)(Range r)
     return Base64Encoder!Range(r);
 }
 
-unittest
+///
+pure @safe unittest
 {
     import std.algorithm : equal;
-    import std.base64 : Base64;
     import std.utf : byChar;
 
-    assert("test string".byChar.base64Encode.equal(Base64.encode(cast(ubyte[])"test string")));
-    assert("test strin" .byChar.base64Encode.equal(Base64.encode(cast(ubyte[])"test strin")));
-    assert("test stri"  .byChar.base64Encode.equal(Base64.encode(cast(ubyte[])"test stri")));
+    //The element type of our range must be castable to ubyte
+    //Because of autodecoding, the element type of a string is dchar
+//    static assert(!__traits(compiles, "test".base64Encode));
 
-    assert("mary had a little lamb".byChar.base64Encode.equal("bWFyeSBoYWQgYSBsaXR0bGUgbGFtYg=="));
-    assert("MARY HAD A LITTLE LAMB".byChar.base64Encode.equal("TUFSWSBIQUQgQSBMSVRUTEUgTEFNQg=="));
+    assert("test".base64Encode.equal("dGVzdA=="));
+
+    //To get around this, we can use std.utf.byChar
+    assert("Input string".byChar.base64Encode.equal("SW5wdXQgc3RyaW5n"));
+    assert("Input strin" .byChar.base64Encode.equal("SW5wdXQgc3RyaW4="));
+    assert("Input stri"  .byChar.base64Encode.equal("SW5wdXQgc3RyaQ=="));
 }
 
-unittest
+pure @safe unittest
 {
-    //Test bulk data
-    import std.string : succ;
     import std.algorithm : equal;
-    import std.utf : byChar;
     import std.base64 : Base64;
+    import std.utf : byChar;
 
-    string s = "0";
-    foreach(_; 0..1000)
-    {
-        //Anything encoded then decoded should be itself
-        assert(s.byChar.base64Encode.equal(Base64.encode(cast(ubyte[])s)));
-        //Generate the next string
-        s = s.succ;
-    }
+    assert("test string".byChar.base64Encode.equal("dGVzdCBzdHJpbmc="));
+    assert("test strin" .byChar.base64Encode.equal("dGVzdCBzdHJpbg=="));
+    assert("test stri"  .byChar.base64Encode.equal("dGVzdCBzdHJp"));
 
+    assert("123456789".byChar.base64Encode.equal("MTIzNDU2Nzg5"));
+    assert("234567891".byChar.base64Encode.equal("MjM0NTY3ODkx"));
+    assert("345678912".byChar.base64Encode.equal("MzQ1Njc4OTEy"));
+
+    assert("".byChar.base64Encode.equal(""));
 }
 
 struct Base64Decoder(Range)
@@ -167,20 +169,20 @@ auto base64Decode(Range)(Range r)
     return Base64Decoder!Range(r);
 }
 
-unittest
+pure @safe unittest
 {
     import std.algorithm : equal;
     import std.base64 : Base64;
     import std.utf : byChar;
     import std.range : walkLength;
 
-    assert("dGVzdCBzdHJpbmc=".byChar.base64Decode.equal(Base64.decode(cast(ubyte[])"dGVzdCBzdHJpbmc=")));
-    assert("dGVzdCBzdHJpbg==".byChar.base64Decode.equal(Base64.decode(cast(ubyte[])"dGVzdCBzdHJpbg==")));
-    assert("dGVzdCBzdHJp"  .byChar.base64Decode.equal(Base64.decode(cast(ubyte[])"dGVzdCBzdHJp")));
+    assert("dGVzdCBzdHJpbmc=".byChar.base64Decode.equal("test string"));
+    assert("dGVzdCBzdHJpbg==".byChar.base64Decode.equal("test strin"));
+    assert("dGVzdCBzdHJp"    .byChar.base64Decode.equal("test stri"));
 }
 
 //Both in unison
-unittest
+pure @safe unittest
 {
     import std.string : succ;
     import std.algorithm : equal;
