@@ -19,6 +19,7 @@ struct Base64Encoder(Range)
     private Range range;
     private ubyte oldValue;
     private ubyte pos;
+    private bool paddingRequired;
 
     this(Range range)
     {
@@ -28,7 +29,7 @@ struct Base64Encoder(Range)
     immutable(char) front()
     {
         //Signals padding is required
-        if(range.empty && !oldValue)
+        if(range.empty && paddingRequired)
             return encodingChars[$-1];
 
         ubyte newValue = range.empty? 0 : cast(ubyte)range.front;
@@ -48,7 +49,13 @@ struct Base64Encoder(Range)
         //Ensure that pos remains in [0, 4)
         pos = (pos + 1) & 3;
 
-        oldValue = range.empty? 0 : cast(ubyte)range.front;
+        if(range.empty)
+        {
+            paddingRequired = true;
+            oldValue = 0;
+        }
+        else
+            oldValue = cast(ubyte)range.front;
 
         //Since encoding is 3:4 bytes, we need to pop the underlying range
         //3 times while still producing 4 values
@@ -98,6 +105,20 @@ pure @safe unittest
     assert("Input strin" .byChar.base64Encode.equal("SW5wdXQgc3RyaW4="));
     assert("Input stri"  .byChar.base64Encode.equal("SW5wdXQgc3RyaQ=="));
 }
+
+pure nothrow @safe @nogc unittest
+{
+    //Edge case: This should encode to 'AAAAAAAA'
+    ubyte[6] data = [0,0,0,0,0,0];
+    size_t i;
+    foreach(c; data[].base64Encode)
+    {
+        assert(c == 'A');
+        i++;
+    }
+    assert(i == 8);
+}
+
 
 ///Lazily decodes a given base64 encoded Range. The range must be an input range
 ///whose element type is castable to a ubyte.
