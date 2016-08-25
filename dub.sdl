@@ -1,5 +1,5 @@
 name "base-d"
-description "A simple library for encoding and decoding base64"
+description "A simple library for lazily encoding and decoding base64"
 authors "mitch_"
 copyright "Copyright © 2016, mitch"
 license "GPL"
