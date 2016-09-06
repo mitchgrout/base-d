@@ -126,7 +126,14 @@ struct Base64Decoder(Range)
     if(isInputRange!Range &&
        isExplicitlyConvertible!(ElementType!Range, char))
 {
-    static immutable encodingChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+    static this()
+    {
+        foreach(i, c; "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
+            encodingChars[c] = cast(ubyte)i;
+        encodingChars['='] = 0;
+    }
+
+    static immutable(ubyte[128]) encodingChars;
 
     private Range range;
     private ubyte oldValue;
@@ -138,7 +145,7 @@ struct Base64Decoder(Range)
         //Decoding is 4:3, so we immediately skip the first item
         if(!range.empty)
         {
-            oldValue = this.range.front;
+            oldValue = cast(ubyte)this.range.front;
             this.range.popFront;
         }
     }
@@ -147,8 +154,8 @@ struct Base64Decoder(Range)
     {
         import std.string : indexOf;
 
-        auto oldIndex = cast(ubyte)(oldValue == '='?0 : encodingChars.indexOf(oldValue));
-        auto newIndex = cast(ubyte)(range.front == '='? 0 : encodingChars.indexOf(range.front));
+        auto oldIndex = encodingChars[oldValue];
+        auto newIndex = encodingChars[range.front];
 
         final switch(pos)
         {
@@ -171,13 +178,13 @@ struct Base64Decoder(Range)
             //We may or may not have another chunk of data to deal with
             if(!range.empty)
             {
-                oldValue = range.front;
+                oldValue = cast(ubyte)range.front;
                 range.popFront;
             }
         }
         else
         {
-            oldValue = range.front;
+            oldValue = cast(ubyte)range.front;
             range.popFront;
         }
     }
@@ -209,6 +216,21 @@ pure @safe unittest
     assert("dGVzdCBzdHJpbg==".byChar.base64Decode.equal("test strin"));
     assert("dGVzdCBzdHJp"    .byChar.base64Decode.equal("test stri"));
 }
+
+pure nothrow @safe @nogc unittest
+{
+    //Base-bones decoding should be pure/nothrow/safe/nogc
+    import std.utf : byChar;
+    char[8] data = 'A';
+    size_t i;
+    foreach(c; data[].byChar.base64Decode)
+    {
+        assert(c == 0);
+        i++;
+    }
+    assert(i == 6);
+}
+
 
 pure @safe unittest
 {
