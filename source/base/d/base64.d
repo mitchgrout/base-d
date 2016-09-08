@@ -1,7 +1,6 @@
 module base.d.base64;
 
-import std.range.primitives : ElementType, isInputRange, isInfinite;
-import std.range.primitives : front, popFront, empty;
+import std.range.primitives;
 import std.utf : front, popFront, empty;
 
 //Not available in std.traits
@@ -101,6 +100,14 @@ struct Base64Encoder(Range)
     {
         //Data is all consumed, and padding is done
         return range.empty && !pos;
+    }
+
+    static if(isForwardRange!Range)
+    typeof(this) save()
+    {
+        typeof(this) res = this;
+        res.range = res.range.save;
+        return res;
     }
 }
 
@@ -227,6 +234,14 @@ struct Base64Decoder(Range)
     {
         //Final padding can be ignored
         return range.empty || range.front == '=';
+    }
+
+    static if(isForwardRange!Range)
+    typeof(this) save()
+    {
+        typeof(this) res = this;
+        res.range = res.range.save;
+        return res;
     }
 }
 
