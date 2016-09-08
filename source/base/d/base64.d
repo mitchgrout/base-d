@@ -3,8 +3,10 @@ module base.d.base64;
 import std.range.primitives;
 import std.utf : front, popFront, empty;
 
+
 //Not available in std.traits
 enum isExplicitlyConvertible(From, To) = __traits(compiles, cast(To) From.init);
+
 
 ///Programmatically generates a ubyte[128] table
 ///As per the standard, the extra characters must be in the
@@ -29,6 +31,7 @@ template makeTable(char char62, char char63, char padding)
 
     enum makeTable = make();
 }
+
 
 ///Lazily encodes a given Range to base64. The range must be an input range
 ///whose element type is castable to a ubyte.
@@ -111,6 +114,7 @@ struct Base64Encoder(Range)
     }
 }
 
+
 ///Ditto
 auto base64Encode(Range)(Range r)
     if(isInputRange!Range &&
@@ -118,6 +122,7 @@ auto base64Encode(Range)(Range r)
 {
     return Base64Encoder!Range(r);
 }
+
 
 ///
 pure @safe unittest
@@ -137,6 +142,7 @@ pure @safe unittest
     assert("".byChar.base64Encode.equal(""));
 }
 
+
 pure @safe unittest
 {
     import std.algorithm : equal;
@@ -146,6 +152,7 @@ pure @safe unittest
     assert("Input strin" .byChar.base64Encode.equal("SW5wdXQgc3RyaW4="));
     assert("Input stri"  .byChar.base64Encode.equal("SW5wdXQgc3RyaQ=="));
 }
+
 
 pure nothrow @safe @nogc unittest
 {
@@ -245,6 +252,7 @@ struct Base64Decoder(Range)
     }
 }
 
+
 ///Ditto
 auto base64Decode(Range)(Range r)
     if(isInputRange!Range &&
@@ -252,6 +260,7 @@ auto base64Decode(Range)(Range r)
 {
     return Base64Decoder!Range(r);
 }
+
 
 ///
 pure @safe unittest
@@ -266,6 +275,7 @@ pure @safe unittest
     assert("dGVzdCBzdHJp"    .byChar.base64Decode.equal("test stri"));
 }
 
+
 pure nothrow @safe @nogc unittest
 {
     //Base-bones decoding should be pure/nothrow/safe/nogc
@@ -279,6 +289,7 @@ pure nothrow @safe @nogc unittest
     }
     assert(i == 6);
 }
+
 
 pure unittest
 {
@@ -295,6 +306,7 @@ pure unittest
     assertNotThrown!AssertError(consume("validstring=".base64Decode));
 }
 
+
 pure @safe unittest
 {
     import std.string : succ;
@@ -310,6 +322,7 @@ pure @safe unittest
         s = s.succ;
     }
 }
+
 
 //Determines whether a given range represents a valid base64 string
 bool isValidBase64(Range)(Range r)
@@ -342,6 +355,7 @@ bool isValidBase64(Range)(Range r)
     return !(count & 3);
 }
 
+
 pure nothrow @safe @nogc unittest
 {
     assert(!isValidBase64("invalid due to invalid chars"));
@@ -357,6 +371,7 @@ pure nothrow @safe @nogc unittest
     assert(isValidBase64("data"));
     assert(isValidBase64("dGVzdAo="));
 }
+
 
 pure @safe unittest
 {
