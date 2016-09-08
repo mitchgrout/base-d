@@ -7,6 +7,30 @@ import std.utf : front, popFront, empty;
 //Not available in std.traits
 enum isExplicitlyConvertible(From, To) = __traits(compiles, cast(To) From.init);
 
+///Programmatically generates a ubyte[128] table
+///As per the standard, the extra characters must be in the
+///US-ASCII character set, and thus must have values < 128
+template makeTable(char char62, char char63, char padding)
+    if(char62 < 128 && char63 < 128 && padding < 128)
+{
+    auto make()
+    {
+        ubyte[128] encodingChars = ubyte.max;
+
+        foreach(i, c; "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
+            encodingChars[c] = cast(ubyte)i;
+
+        //Manually fill the rest of the table
+        encodingChars[char62] = 62;
+        encodingChars[char63] = 63;
+        encodingChars[padding] = 0;
+
+        return encodingChars;
+    }
+
+    enum makeTable = make();
+}
+
 ///Lazily encodes a given Range to base64. The range must be an input range
 ///whose element type is castable to a ubyte.
 struct Base64Encoder(Range)
@@ -136,17 +160,7 @@ struct Base64Decoder(Range)
     if(isInputRange!Range &&
        isExplicitlyConvertible!(ElementType!Range, char))
 {
-    static this()
-    {
-        encodingChars = ubyte.max;
-
-        foreach(i, c; "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
-            encodingChars[c] = cast(ubyte)i;
-
-        encodingChars['='] = 0;
-    }
-
-    static immutable(ubyte[128]) encodingChars;
+    static immutable encodingChars = makeTable!('+', '/', '=');
 
     private Range range;
     private ubyte oldValue;
@@ -273,7 +287,7 @@ pure @safe unittest
     import std.utf : byChar;
 
     string s = "0";
-    foreach(_; 0..1000)
+    foreach(_; 0 .. 10000)
     {
         //Anything encoded then decoded should be itself
         assert(s.byChar.base64Encode.base64Decode.equal(s));
@@ -282,3 +296,64 @@ pure @safe unittest
     }
 }
 
+//Determines whether a given range represents a valid base64 string
+bool isValidBase64(Range)(Range r)
+    if(isInputRange!Range &&
+       isExplicitlyConvertible!(ElementType!Range, char))
+{
+    static immutable encodingChars = makeTable!('+', '/', '=');
+    size_t count;
+    size_t padding;
+
+    foreach(val; r)
+    {
+        auto index = cast(char)val;
+
+        count++;
+        if(index == '=')
+            padding++;
+
+        //Found an invalid character in our input, found a non-padding char
+        //after we began padding, or found more than the allowable number of padding chars
+        if(encodingChars[index] == ubyte.max ||
+           (padding && index != '=') ||
+           (padding > 2 && index == '='))
+        {
+            return false;
+        }
+    }
+
+    //Our input is now valid iff we encountered an even number of 4-chars
+    return !(count & 3);
+}
+
+pure nothrow @safe @nogc unittest
+{
+    assert(!isValidBase64("invalid due to invalid chars"));
+    assert(!isValidBase64("badlength"));
+    assert(!isValidBase64("bad=padding"));
+    assert(!isValidBase64("worse==padding"));
+    assert(!isValidBase64("the============worst"));
+    assert(!isValidBase64("stillbad===="));
+    assert(!isValidBase64("=="));
+
+    assert(isValidBase64(""));
+    assert(isValidBase64("validstring="));
+    assert(isValidBase64("data"));
+    assert(isValidBase64("dGVzdAo="));
+}
+
+pure @safe unittest
+{
+    import std.string : succ;
+    import std.algorithm : equal;
+    import std.utf : byChar;
+
+    string s = "0";
+    foreach(_; 0 .. 10000)
+    {
+        assert(isValidBase64(s.base64Encode));
+        //Generate the next string
+        s = s.succ;
+    }
+}
