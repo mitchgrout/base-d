@@ -28,24 +28,34 @@ struct Base64Encoder(Range)
 
     immutable(char) front()
     {
+        assert(!empty, "Cannot call front() on an empty range");
+
         //Signals padding is required
         if(range.empty && paddingRequired)
             return encodingChars[$-1];
 
         ubyte newValue = range.empty? 0 : cast(ubyte)range.front;
+        size_t index;
 
         //pos is guaranteed to be in [0, 4)
         final switch(pos)
         {
-            case 0: return encodingChars[(newValue & 0xfc) >> 2];
-            case 1: return encodingChars[((oldValue & 0x03) << 4) | ((newValue & 0xf0) >> 4)];
-            case 2: return encodingChars[((oldValue & 0x0f) << 2)|((newValue & 0xc0) >> 6)];
-            case 3: return encodingChars[oldValue & 0x3f];
+            case 0: index = (newValue & 0xfc) >> 2; break;
+            case 1: index = ((oldValue & 0x03) << 4) | ((newValue & 0xf0) >> 4); break;
+            case 2: index = ((oldValue & 0x0f) << 2)|((newValue & 0xc0) >> 6); break;
+            case 3: index = oldValue & 0x3f; break;
         }
+
+        //Bounds-check
+        assert(index < encodingChars.length, "Encoded index was out of bounds");
+
+        return encodingChars[index];
     }
 
     void popFront()
     {
+        assert(!empty, "Cannot call popFront() on an empty range");
+
         //Ensure that pos remains in [0, 4)
         pos = (pos + 1) & 3;
 
@@ -128,8 +138,11 @@ struct Base64Decoder(Range)
 {
     static this()
     {
+        encodingChars = ubyte.max;
+
         foreach(i, c; "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
             encodingChars[c] = cast(ubyte)i;
+
         encodingChars['='] = 0;
     }
 
@@ -142,6 +155,7 @@ struct Base64Decoder(Range)
     this(Range range)
     {
         this.range = range;
+
         //Decoding is 4:3, so we immediately skip the first item
         if(!range.empty)
         {
@@ -152,10 +166,16 @@ struct Base64Decoder(Range)
 
     ubyte front()
     {
-        import std.string : indexOf;
+        assert(!empty, "Cannot call front() on an empty range");
+
+        //Bounds-check
+        assert(oldValue < encodingChars.length);
+        assert((cast(ubyte)range.front) < encodingChars.length);
 
         auto oldIndex = encodingChars[oldValue];
         auto newIndex = encodingChars[range.front];
+
+        assert(oldIndex != ubyte.max && newIndex != ubyte.max, "Read invalid base64 character");
 
         final switch(pos)
         {
@@ -231,6 +251,20 @@ pure nothrow @safe @nogc unittest
     assert(i == 6);
 }
 
+pure unittest
+{
+    import std.exception : assertThrown, assertNotThrown;
+    import core.exception : AssertError;
+
+    //Calls {empty|front|popFront} until the range is consumed
+    void consume(Range)(Range r)
+    {
+        foreach(_; r) { }
+    }
+
+    assertThrown!AssertError(consume("some bad string!".base64Decode));
+    assertNotThrown!AssertError(consume("validstring=".base64Decode));
+}
 
 pure @safe unittest
 {
@@ -247,3 +281,4 @@ pure @safe unittest
         s = s.succ;
     }
 }
+
