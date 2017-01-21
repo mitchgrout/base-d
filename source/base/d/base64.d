@@ -11,7 +11,7 @@ enum isExplicitlyConvertible(From, To) = __traits(compiles, cast(To) From.init);
 ///Programmatically generates a ubyte[128] table
 ///As per the standard, the extra characters must be in the
 ///US-ASCII character set, and thus must have values < 128
-template makeTable(char char62, char char63, char padding)
+private template makeTable(char char62, char char63, char padding)
     if(char62 < 128 && char63 < 128 && padding < 128)
 {
     auto make()
@@ -35,12 +35,13 @@ template makeTable(char char62, char char63, char padding)
 
 ///Lazily encodes a given Range to base64. The range must be an input range
 ///whose element type is castable to a ubyte.
-struct Base64Encoder(Range)
+struct Base64Encoder(Range, char char62, char char63, char padding)
     if(isInputRange!Range &&
-       isExplicitlyConvertible!(ElementType!Range, ubyte))
+       isExplicitlyConvertible!(ElementType!Range, ubyte) &&
+       char62 < 128 && char63 < 128 && padding < 128)
 {
     //TODO: Allow the final three chars to be decidable by the user
-    static immutable encodingChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+    static immutable encodingChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789" ~ char62 ~ char63 ~ padding;
 
     private Range range;
     private ubyte oldValue;
@@ -108,21 +109,43 @@ struct Base64Encoder(Range)
     static if(isForwardRange!Range)
     typeof(this) save()
     {
-        typeof(this) res = this;
+        auto res = this;
         res.range = res.range.save;
         return res;
+    }
+
+    ///Get the number of chars necessary to encode the given range
+    static if(hasLength!Range)
+    size_t length()
+    {
+        import std.math : ceil;
+        return cast(size_t)ceil(range.length / 3.0f) * 4;
+    }
+
+    ///
+    unittest
+    {
+        import std.algorithm : equal;
+        import std.utf : byChar;
+
+        auto encoded = "test".byChar.encodeBase64;
+        assert(encoded.equal("dGVzdA=="));
+        assert(encoded.length == 8);
     }
 }
 
 
 ///Ditto
-auto base64Encode(Range)(Range r)
+alias Base64Encoder(Range) = Base64Encoder!(Range, '+', '/', '=');
+
+
+///Ditto
+auto encodeBase64(Range)(Range r)
     if(isInputRange!Range &&
        isExplicitlyConvertible!(ElementType!Range, ubyte))
 {
     return Base64Encoder!Range(r);
 }
-
 
 ///
 pure @safe unittest
@@ -131,27 +154,48 @@ pure @safe unittest
     import std.base64 : Base64;
     import std.utf : byChar;
 
-    assert("test string".byChar.base64Encode.equal("dGVzdCBzdHJpbmc="));
-    assert("test strin" .byChar.base64Encode.equal("dGVzdCBzdHJpbg=="));
-    assert("test stri"  .byChar.base64Encode.equal("dGVzdCBzdHJp"));
+    assert("test string".byChar.encodeBase64.equal("dGVzdCBzdHJpbmc="));
+    assert("test strin" .byChar.encodeBase64.equal("dGVzdCBzdHJpbg=="));
+    assert("test stri"  .byChar.encodeBase64.equal("dGVzdCBzdHJp"));
 
-    assert("123456789".byChar.base64Encode.equal("MTIzNDU2Nzg5"));
-    assert("234567891".byChar.base64Encode.equal("MjM0NTY3ODkx"));
-    assert("345678912".byChar.base64Encode.equal("MzQ1Njc4OTEy"));
+    assert("123456789".byChar.encodeBase64.equal("MTIzNDU2Nzg5"));
+    assert("234567891".byChar.encodeBase64.equal("MjM0NTY3ODkx"));
+    assert("345678912".byChar.encodeBase64.equal("MzQ1Njc4OTEy"));
 
-    assert("".byChar.base64Encode.equal(""));
+    assert("".byChar.encodeBase64.equal(""));
 }
 
 
+///Ditto
+auto encodeBase64(char char62, char char63, char padding, Range)(Range r)
+    if(isInputRange!Range &&
+       isExplicitlyConvertible!(ElementType!Range, ubyte) &&
+       char62 < 128 && char63 < 128 && padding < 128)
+{
+    return Base64Encoder!(Range, char62, char63, padding)(r);
+}
+
+
+///
 pure @safe unittest
 {
     import std.algorithm : equal;
     import std.utf : byChar;
 
-    assert("Input string".byChar.base64Encode.equal("SW5wdXQgc3RyaW5n"));
-    assert("Input strin" .byChar.base64Encode.equal("SW5wdXQgc3RyaW4="));
-    assert("Input stri"  .byChar.base64Encode.equal("SW5wdXQgc3RyaQ=="));
+    auto customEncode(Range)(Range r)
+    {
+        return r.encodeBase64!('-', '_', '.');
+    }
+
+    assert(customEncode("Input string".byChar).equal("SW5wdXQgc3RyaW5n"));
+    assert(customEncode("Input strin" .byChar).equal("SW5wdXQgc3RyaW4."));
+    assert(customEncode("Input stri"  .byChar).equal("SW5wdXQgc3RyaQ.."));
+
+    assert(customEncode("~~~~".byChar).equal("fn5-fg.."));
+    assert(customEncode("~~~" .byChar).equal("fn5-"));
+    assert(customEncode("~~"  .byChar).equal("fn4."));
 }
+
 
 
 pure nothrow @safe @nogc unittest
@@ -159,7 +203,7 @@ pure nothrow @safe @nogc unittest
     //Edge case: This should encode to 'AAAAAAAA'
     ubyte[6] data = [0,0,0,0,0,0];
     size_t i;
-    foreach(c; data[].base64Encode)
+    foreach(c; data[].encodeBase64)
     {
         assert(c == 'A');
         i++;
@@ -168,13 +212,15 @@ pure nothrow @safe @nogc unittest
 }
 
 
+
 ///Lazily decodes a given base64 encoded Range. The range must be an input range
 ///whose element type is castable to a ubyte.
-struct Base64Decoder(Range)
+struct Base64Decoder(Range, char char62, char char63, char padding)
     if(isInputRange!Range &&
-       isExplicitlyConvertible!(ElementType!Range, char))
+       isExplicitlyConvertible!(ElementType!Range, char) &&
+       char62 < 128 && char63 < 128 && padding < 128)
 {
-    static immutable encodingChars = makeTable!('+', '/', '=');
+    static immutable encodingChars = makeTable!(char62, char63, padding);
 
     private Range range;
     private ubyte oldValue;
@@ -250,11 +296,21 @@ struct Base64Decoder(Range)
         res.range = res.range.save;
         return res;
     }
+
+    static if(hasLength!Range)
+    size_t length()
+    {
+        return range.length / 3 * 4;
+    }
 }
 
 
 ///Ditto
-auto base64Decode(Range)(Range r)
+alias Base64Decoder(Range) = Base64Decoder!(Range, '+', '/', '=');
+
+
+///Ditto
+auto decodeBase64(Range)(Range r)
     if(isInputRange!Range &&
        isExplicitlyConvertible!(ElementType!Range, ubyte))
 {
@@ -270,9 +326,9 @@ pure @safe unittest
     import std.utf : byChar;
     import std.range : walkLength;
 
-    assert("dGVzdCBzdHJpbmc=".byChar.base64Decode.equal("test string"));
-    assert("dGVzdCBzdHJpbg==".byChar.base64Decode.equal("test strin"));
-    assert("dGVzdCBzdHJp"    .byChar.base64Decode.equal("test stri"));
+    assert("dGVzdCBzdHJpbmc=".byChar.decodeBase64.equal("test string"));
+    assert("dGVzdCBzdHJpbg==".byChar.decodeBase64.equal("test strin"));
+    assert("dGVzdCBzdHJp"    .byChar.decodeBase64.equal("test stri"));
 }
 
 
@@ -282,7 +338,7 @@ pure nothrow @safe @nogc unittest
     import std.utf : byChar;
     char[8] data = 'A';
     size_t i;
-    foreach(c; data[].byChar.base64Decode)
+    foreach(c; data[].byChar.decodeBase64)
     {
         assert(c == 0);
         i++;
@@ -302,8 +358,8 @@ pure unittest
         foreach(_; r) { }
     }
 
-    assertThrown!AssertError(consume("some bad string!".base64Decode));
-    assertNotThrown!AssertError(consume("validstring=".base64Decode));
+    assertThrown!AssertError(consume("some bad string!".decodeBase64));
+    assertNotThrown!AssertError(consume("validstring=".decodeBase64));
 }
 
 
@@ -317,35 +373,36 @@ pure @safe unittest
     foreach(_; 0 .. 10000)
     {
         //Anything encoded then decoded should be itself
-        assert(s.byChar.base64Encode.base64Decode.equal(s));
+        assert(s.byChar.encodeBase64.decodeBase64.equal(s));
         //Generate the next string
         s = s.succ;
     }
 }
 
 
-//Determines whether a given range represents a valid base64 string
-bool isValidBase64(Range)(Range r)
+///Determines whether a given range represents a valid base64 string
+bool isValidBase64(char char62, char char63, char padding, Range)(Range r)
     if(isInputRange!Range &&
-       isExplicitlyConvertible!(ElementType!Range, char))
+       isExplicitlyConvertible!(ElementType!Range, char) &&
+       char62 < 128 && char63 < 128 && padding < 128)
 {
-    static immutable encodingChars = makeTable!('+', '/', '=');
+    static immutable encodingChars = makeTable!(char62, char63, padding);
     size_t count;
-    size_t padding;
+    size_t pad;
 
     foreach(val; r)
     {
         auto index = cast(char)val;
 
         count++;
-        if(index == '=')
-            padding++;
+        if(index == padding)
+            pad++;
 
         //Found an invalid character in our input, found a non-padding char
         //after we began padding, or found more than the allowable number of padding chars
         if(encodingChars[index] == ubyte.max ||
-           (padding && index != '=') ||
-           (padding > 2 && index == '='))
+           (pad && index != padding) ||
+           (pad > 2 && index == padding))
         {
             return false;
         }
@@ -356,6 +413,33 @@ bool isValidBase64(Range)(Range r)
 }
 
 
+///
+unittest
+{
+    assert(!isValidBase64!('-', '_', '.')("invalid data"));
+    assert(!isValidBase64!('-', '_', '.')("badlength."));
+    assert(!isValidBase64!('-', '_', '.')("-.-"));
+    assert(!isValidBase64!('-', '_', '.')("some_data...."));
+    assert(!isValidBase64!('-', '_', '.')("."));
+
+    assert(isValidBase64!('-', '_', '.')("dVx."));
+    assert(isValidBase64!('-', '_', '.')("HQnC1UHBvWA."));
+    assert(isValidBase64!('-', '_', '.')("bWVtZXRhc3RpYw.."));
+    assert(isValidBase64!('-', '_', '.')("fn5-ZCByb3h-fn4."));
+    assert(isValidBase64!('-', '_', '.')(""));
+}
+
+
+///Ditto
+auto isValidBase64(Range)(Range r)
+    if(isInputRange!Range &&
+       isExplicitlyConvertible!(ElementType!Range, char))
+{
+    return r.isValidBase64!('+', '/', '=', Range);
+}
+
+
+///
 pure nothrow @safe @nogc unittest
 {
     assert(!isValidBase64("invalid due to invalid chars"));
@@ -382,7 +466,7 @@ pure @safe unittest
     string s = "0";
     foreach(_; 0 .. 10000)
     {
-        assert(isValidBase64(s.base64Encode));
+        assert(isValidBase64(s.encodeBase64));
         //Generate the next string
         s = s.succ;
     }
